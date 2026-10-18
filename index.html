@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador de Motor</title>
+<style>
+:root { --bg:#090d12; --panel:#0f141b; --card:#131a23; --card2:#18212c; --line:#222d3a; --line2:#2d3b4b; --txt:#dfe7ef; --mut:#8494a5;
+  --acc:#ff7a1a; --acc2:#ffb347; --blue:#4ea1ff; --ok:#3ecf8e; --warn:#ffb020; --bad:#ff5252; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--txt); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: grid; grid-template-columns: 304px 1fr 356px; grid-template-rows: 1fr auto; height: 100vh; overflow: hidden; }
+aside { background: var(--panel); overflow: auto; padding: 12px 12px 18px; scrollbar-width: thin; scrollbar-color: #2a3644 transparent; }
+#left { border-right: 1px solid var(--line); } #right { border-left: 1px solid var(--line); }
+/* cabeçalho */
+.brand { display: flex; align-items: center; gap: 10px; margin: 2px 2px 12px; }
+.brand svg { flex: none; }
+.brand h1 { font-size: 15px; margin: 0; letter-spacing: .01em; } .brand h1 span { color: var(--acc); }
+.brand small { display: block; color: var(--mut); font-size: 11px; font-weight: 400; }
+button.fold { margin-left: auto; padding: 4px 9px; font-size: 13px; background: transparent; }
+.rhead { display: flex; align-items: center; margin: 0 0 8px; color: var(--mut); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 650; }
+button.unfold { position: absolute; top: 50%; transform: translateY(-50%); padding: 14px 6px; display: none; background: #0b0f14e6; z-index: 5; }
+#openL { left: 0; border-radius: 0 9px 9px 0; } #openR { right: 0; border-radius: 9px 0 0 9px; }
+body.noL { grid-template-columns: 0 1fr 356px; } body.noR { grid-template-columns: 304px 1fr 0; } body.noL.noR { grid-template-columns: 0 1fr 0; }
+body.noL #left, body.noR #right { display: none; } body.noL #openL, body.noR #openR { display: block; }
+#fire { position: absolute; right: 12px; bottom: 12px; width: 260px; height: 150px; pointer-events: none; }
+.actions { display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; }
+/* botões */
+button { font: inherit; cursor: pointer; border-radius: 9px; padding: 8px 10px; border: 1px solid var(--line2); background: var(--card2); color: var(--txt);
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; transition: border-color .15s, background .15s, transform .05s; }
+button:hover { border-color: #46617d; background: #1c2734; } button:active { transform: translateY(1px); }
+button.pri { background: linear-gradient(180deg, #ff8d33, #f26a0a); border-color: #ff8d33; color: #1a0c02; font-weight: 700; box-shadow: 0 4px 14px #ff7a1a33; }
+button.pri:hover { background: linear-gradient(180deg, #ff9b4b, #ff7a1a); }
+button.ghost { background: transparent; }
+button.on { border-color: var(--acc); color: var(--acc2); background: #ff7a1a14; }
+button.danger { border-color: #7a2c2c; color: #ffb4b4; }
+/* seções recolhíveis */
+details.sec { background: var(--card); border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; overflow: hidden; }
+details.sec > summary { list-style: none; cursor: pointer; padding: 10px 12px; display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 12.5px; letter-spacing: .01em; user-select: none; }
+details.sec > summary::-webkit-details-marker { display: none; }
+details.sec > summary .ic { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; background: #ff7a1a1c; color: var(--acc2); font-size: 12px; flex: none; }
+details.sec > summary::after { content: ''; margin-left: auto; width: 7px; height: 7px; border-right: 2px solid var(--mut); border-bottom: 2px solid var(--mut); transform: rotate(-45deg); transition: transform .2s; }
+details.sec[open] > summary::after { transform: rotate(45deg); }
+details.sec[open] > summary { border-bottom: 1px solid var(--line); }
+.body { padding: 4px 12px 12px; }
+/* campos */
+.f { margin-top: 10px; }
+.lab { display: flex; align-items: center; gap: 4px; color: var(--mut); font-size: 12px; margin-bottom: 4px; }
+.lab b { margin-left: auto; color: var(--txt); font-weight: 600; font-size: 11.5px; background: #0b1016; border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; font-variant-numeric: tabular-nums; }
+.q { display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid #3a4b5f; color: #8fa3b8; font-size: 9.5px; font-weight: 700; cursor: help; flex: none; }
+.q:hover { border-color: var(--acc); color: var(--acc2); }
+select { width: 100%; appearance: none; -webkit-appearance: none; background: #0b1016 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238494a5' stroke-width='1.6'/%3E%3C/svg%3E") no-repeat right 10px center;
+  color: var(--txt); border: 1px solid var(--line2); border-radius: 9px; padding: 7px 28px 7px 10px; font: inherit; cursor: pointer; }
+select:hover { border-color: #46617d; } select:focus { outline: none; border-color: var(--acc); box-shadow: 0 0 0 3px #ff7a1a22; }
+optgroup { color: var(--mut); } option { color: var(--txt); background: #0f141b; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 20px; background: transparent; cursor: pointer; margin: 0; }
+input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 4px; background: linear-gradient(90deg, var(--acc) var(--p, 50%), #263241 var(--p, 50%)); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: 50%; background: #fff; border: 3px solid var(--acc); box-shadow: 0 0 0 4px #ff7a1a26; }
+input[type=range]::-moz-range-track { height: 6px; border-radius: 4px; background: #263241; }
+input[type=range]::-moz-range-progress { height: 6px; border-radius: 4px; background: var(--acc); }
+input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 3px solid var(--acc); }
+.sw { display: flex; align-items: center; gap: 9px; color: var(--txt); font-size: 12px; cursor: pointer; margin-top: 10px; }
+.sw input { appearance: none; -webkit-appearance: none; width: 34px; height: 20px; border-radius: 10px; background: #263241; position: relative; flex: none; cursor: pointer; transition: background .15s; margin: 0; }
+.sw input::before { content: ''; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px; border-radius: 50%; background: #c9d4de; transition: transform .15s; }
+.sw input:checked { background: var(--acc); } .sw input:checked::before { transform: translateX(14px); background: #fff; }
+.row { display: flex; gap: 8px; margin-top: 10px; } .row > * { flex: 1; }
+.note { color: var(--mut); font-size: 11.5px; margin-top: 8px; } .note:empty { display: none; }
+#status { margin-top: 10px; color: var(--mut); font-size: 12px; } #status.warn { color: var(--bad); }
+/* palco */
+main { position: relative; overflow: hidden; background: radial-gradient(120% 90% at 50% 35%, #1a2431 0%, #090d12 72%); }
+#c3d, #c2d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#c3d { cursor: grab; } #c2d { display: none; }
+#tach { position: absolute; left: 12px; bottom: 12px; width: 240px; height: 240px; pointer-events: none; }
+.bar { position: absolute; left: 12px; display: flex; gap: 4px; flex-wrap: wrap; max-width: calc(100% - 340px); }
+#viewbar { top: 10px; align-items: center; }
+.bar button { padding: 5px 10px; font-size: 12px; background: #0b0f14d9; border-radius: 8px; backdrop-filter: blur(4px); }
+.bar .sep { width: 1px; height: 22px; background: var(--line2); margin: 0 4px; }
+[hidden] { display: none !important; }
+#viewbar [data-s] { display: none; background: #0c2a4cd9; border-color: #2c5a8a; }
+#viewbar [data-s].on { border-color: #9fd0ff; color: #cfe7ff; background: #1a4a7ad9; }
+main.m2d #viewbar [data-s] { display: inline-flex; } main.m2d #viewbar [data-f] { display: none; } main.m2d .bar { max-width: calc(100% - 24px); }
+#info { position: absolute; right: 12px; top: 10px; width: 318px; max-height: calc(100% - 20px); overflow: auto; background: #0b1016ee; border: 1px solid var(--line2); border-radius: 12px; padding: 12px 14px; display: none; font-size: 12px; backdrop-filter: blur(6px); }
+#demo { position: absolute; left: 12px; top: 142px; width: 340px; background: #0b1016f0; border: 1px solid var(--acc); border-radius: 12px; padding: 12px 14px; display: none; font-size: 12.5px; backdrop-filter: blur(6px); z-index: 6; box-shadow: 0 8px 30px #0008; }
+#demo h3 { margin: 0 0 6px; font-size: 13px; color: var(--acc2); } #demo p { margin: 6px 0; line-height: 1.5; }
+#demo .live { color: #8fc8ff; font-variant-numeric: tabular-nums; background: #0f1a26; border-radius: 8px; padding: 6px 8px; }
+#demo .row { display: flex; gap: 6px; margin-top: 10px; align-items: center; } #demo .row button { padding: 6px 10px; } #demo .pg { margin-left: auto; color: var(--mut); font-size: 11px; }
+#demo .bar2 { height: 3px; background: var(--line); border-radius: 2px; margin-top: 8px; overflow: hidden; } #demo .bar2 i { display: block; height: 100%; background: var(--acc); }
+#viewbar select { width: auto; padding: 7px 28px 7px 10px; }
+#info h3 { margin: 0 0 6px; font-size: 13px; color: var(--acc2); } #info p { margin: 6px 0; } #info small { color: var(--mut); display: block; line-height: 1.5; }
+#info i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 4px 0 8px; vertical-align: -1px; }
+#fail { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); width: min(460px, 80%); background: #2a0d0deb; border: 1px solid #ff5252; border-radius: 14px; padding: 16px 18px; display: none; text-align: center; box-shadow: 0 10px 40px #000c; }
+#fail h3 { margin: 0 0 6px; color: #ff8a8a; font-size: 15px; } #fail p { margin: 0 0 12px; color: #ffd6d6; }
+/* painel direito */
+.big { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+.big > div { background: linear-gradient(180deg, #151d27, #10161e); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+.big b { font-size: 28px; display: block; font-variant-numeric: tabular-nums; letter-spacing: -.01em; } .big span { color: var(--mut); font-size: 11px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.card h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--mut); margin: 0 0 8px; font-weight: 650; display: flex; align-items: center; gap: 6px; }
+.card h2 em { margin-left: auto; font-style: normal; text-transform: none; letter-spacing: 0; color: var(--mut); font-weight: 500; }
+.hb { display: grid; grid-template-columns: 92px 1fr 54px; align-items: center; gap: 8px; font-size: 11.5px; padding: 2.5px 0; }
+.hb span { color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .hb b { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.hb i { display: block; height: 7px; border-radius: 4px; background: #1d2733; overflow: hidden; } .hb i u { display: block; height: 100%; border-radius: 4px; width: 0; transition: width .3s; }
+.hb small { grid-column: 2 / 4; color: var(--mut); font-size: 10.5px; margin-top: -2px; }
+.met { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 12px; font-size: 12px; }
+.met .g { grid-column: 1 / -1; color: var(--mut); font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; margin: 8px 0 2px; font-weight: 650; }
+.met .g:first-child { margin-top: 0; }
+.met .m { display: flex; justify-content: space-between; gap: 6px; border-bottom: 1px solid #1b2430; padding: 3px 0; font-variant-numeric: tabular-nums; cursor: help; }
+.met .m:hover { background: #ffffff06; }
+.met span { color: var(--mut); } .met b { font-weight: 600; white-space: nowrap; } .met small { color: var(--mut); font-weight: 400; }
+canvas.ch { width: 100%; height: 150px; display: block; background: #0b1016; border: 1px solid var(--line); border-radius: 9px; }
+#pv { cursor: pointer; }
+footer { grid-column: 1 / -1; border-top: 1px solid var(--line); padding: 6px 14px; color: var(--mut); font-size: 12px; background: var(--panel); }
+kbd { background: #1a2330; border: 1px solid #2a3746; border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font: 11px ui-monospace, monospace; color: var(--txt); }
+/* explicação ao parar o mouse */
+#tip { position: fixed; z-index: 100; max-width: 340px; background: #0e141c; border: 1px solid #36506d; border-radius: 12px; padding: 11px 13px; box-shadow: 0 14px 40px #000b;
+  font-size: 12.5px; line-height: 1.5; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; }
+#tip.on { opacity: 1; transform: none; }
+#tip h4 { margin: 0 0 5px; font-size: 13px; color: var(--acc2); } #tip p { margin: 5px 0 0; }
+#tip .up { color: #9be7c4; } #tip .dn { color: #9fc8ff; } #tip .ok { color: #c9d4de; border-top: 1px solid #22303f; padding-top: 5px; }
+@media (max-width: 1100px) {
+  body { grid-template-columns: 1fr; grid-template-rows: auto 65vh auto auto; height: auto; overflow: auto; }
+  main { height: 65vh; } #left, #right { border: 0; } .bar { max-width: calc(100% - 24px); }
+}
+</style>
+</head>
+<body>
+<aside id="left">
+  <div class="brand">
+    <svg width="34" height="34" viewBox="0 0 34 34"><rect width="34" height="34" rx="9" fill="#ff7a1a1f"/><path d="M9 22h16M11 22v-6h12v6M14 16v-4h6v4M17 12V8" stroke="#ffb347" stroke-width="2" fill="none" stroke-linecap="round"/><circle cx="17" cy="26" r="2" fill="#ff7a1a"/></svg>
+    <h1>Simulador de <span>motor</span><small>física calculada em tempo real</small></h1>
+    <button class="fold" id="foldL" title="Recolher este painel">⟨</button>
+  </div>
+  <div class="actions"><button id="start" class="pri">▶&nbsp; Ligar motor</button><button id="stop">■&nbsp; Desligar</button></div>
+  <div id="status"></div>
+
+  <details class="sec" open><summary><span class="ic">★</span>Configuração pronta</summary><div class="body">
+    <div class="f"><div class="lab" data-h="preset">Veículo</div><select id="preset"></select></div>
+    <div class="note" id="pinfo"></div>
+  </div></details>
+
+  <details class="sec" open><summary><span class="ic">⚙</span>Motor</summary><div class="body">
+    <div class="f"><div class="lab" data-h="eng">Tipo de motor</div><select id="eng"></select></div>
+    <div class="row">
+      <div><div class="lab" data-h="cyl">Cilindros</div><select id="cyl"></select></div>
+      <div><div class="lab" data-h="cc">Cilindrada</div><select id="cc"></select></div>
+    </div>
+    <div class="f"><div class="lab" data-h="cr">Taxa de compressão</div><select id="cr"></select></div>
+    <div class="f"><div class="lab" data-h="fi">Sobrealimentação</div><select id="fi"><option value="na">Aspirado</option><option value="turbo">Turbo (turbina + compressor)</option><option value="sc">Supercharger centrífugo (correia)</option></select></div>
+    <div class="f" id="fports"><div class="lab" data-h="ports">Janelas do rotativo</div><select id="ports"></select></div>
+    <div class="f" id="fboost"><div class="lab" data-h="boost">Pressão alvo <b id="vboost"></b></div><input id="boost" type="range" min="0.3" max="3.5" step="0.05" value="0.8"></div>
+    <div class="note" id="geo"></div>
+  </div></details>
+
+  <details class="sec"><summary><span class="ic">⚡</span>Combustível e ignição</summary><div class="body">
+    <div class="f"><div class="lab" data-h="fuel">Combustível / octanagem</div><select id="fuel"></select></div>
+    <div class="f"><div class="lab" data-h="smode">Controle da ignição</div><select id="smode"><option value="map">ECU (mapa calibrado)</option><option value="manual">Manual (avanço fixo)</option></select></div>
+    <div class="f" id="fsoff"><div class="lab" data-h="soff">Correção sobre o mapa <b id="vsoff"></b></div><input id="soff" type="range" min="-15" max="15" step="1" value="0"></div>
+    <div class="f" id="fsman"><div class="lab" data-h="sman">Avanço fixo <b id="vsman"></b></div><input id="sman" type="range" min="-10" max="60" step="1" value="30"></div>
+    <div class="f"><div class="lab" data-h="lim">Limitador de giro</div><select id="lim"><option value="fuel">Corte de combustível (suave)</option><option value="spark">Corte de ignição (estala no escape)</option><option value="off">Desligado (as válvulas flutuam)</option></select></div>
+    <label class="sw" data-h="crackle"><input id="crackle" type="checkbox"> Mapa de estalos (pipoco ao tirar o pé)</label>
+  </div></details>
+
+  <details class="sec"><summary><span class="ic">◍</span>Injeção</summary><div class="body">
+    <div class="f"><div class="lab" data-h="lmode">Mistura</div><select id="lmode"><option value="auto">ECU (λ automático)</option><option value="manual">Manual (λ fixo)</option></select></div>
+    <div class="f" id="flam"><div class="lab" data-h="lam">λ alvo <b id="vlam"></b></div><input id="lam" type="range" min="0.7" max="1.3" step="0.01" value="0.9"></div>
+    <div class="f"><div class="lab" data-h="inj">Bicos injetores</div><select id="inj"></select></div>
+    <div class="f"><div class="lab" data-h="eoi">Fim da injeção <b id="veoi"></b></div><input id="eoi" type="range" min="0" max="715" step="5" value="300"></div>
+  </div></details>
+
+  <details class="sec"><summary><span class="ic">≋</span>Escape e câmbio</summary><div class="body">
+    <div class="f"><div class="lab" data-h="exh">Escapamento</div><select id="exh"></select></div>
+    <div class="f"><div class="lab" data-h="trans">Câmbio</div><select id="trans"></select></div>
+    <label class="sw" data-h="qs"><input id="qs" type="checkbox" checked> Quickshifter (sobe sem embreagem)</label>
+    <div class="f"><div class="lab" data-h="thr">Acelerador fixo <b id="vthr"></b></div><input id="thr" type="range" min="0" max="100" step="1" value="0"></div>
+  </div></details>
+
+  <details class="sec"><summary><span class="ic">❄</span>Arrefecimento e óleo</summary><div class="body">
+    <div class="f"><div class="lab" data-h="cool">Arrefecimento</div><select id="cool"></select></div>
+    <div class="f" id="fcoolant"><div class="lab" data-h="coolant">Fluido</div><select id="coolant"></select></div>
+    <div class="f"><div class="lab" data-h="Tamb">Temperatura ambiente <b id="vTamb"></b></div><input id="Tamb" type="range" min="-10" max="45" step="1" value="25"></div>
+    <div class="f"><div class="lab" data-h="oil">Óleo do motor</div><select id="oil"></select></div>
+    <div class="f" id="foilLvl"><div class="lab" data-h="oilLvl">Nível de óleo <b id="voilLvl"></b></div><input id="oilLvl" type="range" min="0" max="110" step="1" value="100"></div>
+    <div class="note" id="oilnote"></div>
+    <div class="f" id="fgear"><div class="lab" data-h="gearOil">Óleo do câmbio</div><select id="gearOil"></select></div>
+    <div class="f" id="fgearL"><div class="lab" data-h="gearLvl">Nível do óleo do câmbio <b id="vgearLvl"></b></div><input id="gearLvl" type="range" min="0" max="110" step="1" value="100"></div>
+    <div class="row">
+      <div><div class="lab" data-h="warm">Partida</div><select id="warm"><option value="1">Motor aquecido</option><option value="0">Motor frio</option></select></div>
+      <div><div class="lab" data-h="tk">Tempo térmico</div><select id="tk"><option value="1">Real (×1)</option><option value="10">×10</option><option value="60">×60</option></select></div>
+    </div>
+    <div class="row"><button id="rebuild" class="ghost" data-h="rebuild">↺&nbsp; Remontar motor</button></div>
+  </div></details>
+
+  <details class="sec"><summary><span class="ic">◷</span>Tempo, som e medições</summary><div class="body">
+    <div class="f"><div class="lab" data-h="ts">Velocidade da simulação (som junto)</div><select id="ts"><option value="1" selected>Tempo real</option><option value="0.1">Câmera lenta 1:10</option><option value="0.02">Câmera lenta 1:50</option><option value="0.005">Câmera lenta 1:200</option></select></div>
+    <div class="f"><div class="lab" data-h="vol">Volume <b id="vvol"></b></div><input id="vol" type="range" min="0" max="1" step="0.01" value="0.8"></div>
+    <div class="row"><button id="remap" data-h="remap">Remapear ECU</button><button id="dyno" data-h="dyno">Dinamômetro</button></div>
+  </div></details>
+</aside>
+<main>
+  <canvas id="c3d"></canvas>
+  <canvas id="c2d"></canvas>
+  <canvas id="tach" width="480" height="480"></canvas>
+  <div id="viewbar" class="bar">
+    <button id="v3d" class="on">3D</button><button id="v2d">Desenho 2D</button><span class="sep"></span>
+    <button data-f="chamber">Câmara</button><button data-f="intake">Admissão</button><button data-f="exhaust">Escape</button><button data-f="turbo" id="bturbo">Turbo</button><button data-f="gearbox">Câmbio</button><button data-f="cooling">Arrefecimento</button><button data-f="oil">Lubrificação</button><button data-f="">Visão geral</button><select id="demoSel" title="Demonstrações guiadas: o simulador mexe nos controles e explica passo a passo"><option value="">▶ Demonstrações…</option></select>
+    <button data-s="chamber" class="on">Câmara</button><button data-s="intake">Admissão</button><button data-s="exhaust">Escape</button><button data-s="turbo" id="sturbo">Turbo / SC</button><button data-s="gearbox">Câmbio</button><button data-s="cooling">Arrefecimento</button><button data-s="oil">Lubrificação</button>
+  </div>
+  <div id="info"></div>
+  <div id="demo"></div>
+  <canvas id="fire" width="520" height="300"></canvas>
+  <button class="unfold" id="openL" title="Mostrar o painel de controles">⟩</button><button class="unfold" id="openR" title="Mostrar as medições">⟨</button>
+  <div id="fail"><h3>Motor travado</h3><p id="failMsg"></p><button class="pri" id="rebuild2">↺&nbsp; Remontar motor</button></div>
+</main>
+<aside id="right">
+  <div class="rhead"><span>Medições</span><button class="fold" id="foldR" title="Recolher este painel">⟩</button></div>
+  <div class="big"><div data-h="m_cv"><span>Potência</span><b id="bcv">0</b><span>cv</span></div><div><span>Torque</span><b id="btq">0</b><span>N·m</span></div></div>
+  <div class="card"><h2>Temperaturas <em id="tnote"></em></h2><div id="tbars"></div></div>
+  <div class="card"><h2>Lubrificação e desgaste <em id="wnote"></em></h2><div id="wbars"></div></div>
+  <div class="card"><div class="met" id="met"></div></div>
+  <div class="card"><h2>Ciclo do cilindro 1 — clique: <span id="pvName">P × V</span></h2><canvas class="ch" id="pv"></canvas></div>
+  <div class="card"><h2>Dinamômetro (acelerador 100%)</h2><canvas class="ch" id="dyn"></canvas><div id="dynTxt" class="note"></div></div>
+</aside>
+<footer>
+  <kbd>W</kbd>/<kbd>↑</kbd> acelerar · <kbd>S</kbd>/<kbd>↓</kbd> freio · <kbd>E</kbd>/<kbd>→</kbd> sobe marcha · <kbd>Q</kbd>/<kbd>←</kbd> desce (parado em N: ré) · <kbd>Espaço</kbd> embreagem · <kbd>D</kbd> volta ao automático · <kbd>P</kbd> partida · pare o mouse sobre qualquer item para ver a explicação · clique numa peça do 3D para ver por dentro
+</footer>
+<div id="tip"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/environments/RoomEnvironment.js"></script>
+<script src="catalog.js?v=5"></script>
+<script src="drive.js?v=5"></script>
+<script src="thermal.js?v=5"></script>
+<script src="engine.js?v=5"></script>
+<script src="audio.js?v=5"></script>
+<script src="help.js?v=5"></script>
+<script src="parts3d.js?v=5"></script>
+<script src="trans3d.js?v=5"></script>
+<script src="view3d.js?v=5"></script>
+<script src="blueprint.js?v=5"></script>
+<script src="ui.js?v=5"></script>
+</body>
+</html>
