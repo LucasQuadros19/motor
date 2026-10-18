@@ -967,7 +967,7 @@ const View3D = !window.THREE ? null : (() => {
   function chamberFX() {
     const c = cyls[0], f = P3.chamber({ B: K.B, roof: K.roof, sg: c.sg, two: g.two, inPath: c.inPath, exPath: c.exPath });
     c.G.add(f.pts);
-    return { obj: f.pts, dispose: f.dispose, update: S => S.fx0 && f.update(Object.assign(S.fx0, { dtv: S.dtv, cam: camK(), fuel: S.fuel, lam: S.st ? S.st.lam : 1 })) };
+    return { obj: f.pts, dispose: f.dispose, stats: f.stats, update: S => S.fx0 && f.update(Object.assign(S.fx0, { dtv: S.dtv, cam: camK(), fuel: S.fuel, lam: S.st ? S.st.lam : 1 })) };
   }
   function flowFX(kind) {
     const B = K.B, egtK = () => (cur.st ? cur.st.egt : 30) + 273;

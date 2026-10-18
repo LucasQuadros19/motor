@@ -224,6 +224,7 @@ const P3 = !window.THREE ? null : (() => {
     const c3 = [0, 0, 0];
     return {
       pts: P.pts, dispose: P.dispose,
+      stats() { let c = 0, bu = 0; for (let i = 0; i < n; i++) if (where[i] === 1) { c++; bu += burnt[i]; } return { inCyl: c, burnt: bu }; },
       update(o) { // o: { tc, tr, li, le, crown, xb, T, dtv, cam, injOn, fuel, lam, swirl, spark }
         fuel = o.fuel; lam = o.lam || 1;
         if (o.tr !== trRef) { trRef = o.tr; mmax = 1e-12; for (let k = 0; k < o.tr.p.length; k++) mmax = Math.max(mmax, o.tr.p[k] * o.tr.v[k] / o.tr.T[k]); }
@@ -235,11 +236,10 @@ const P3 = !window.THREE ? null : (() => {
           const q = []; for (let i = 0; i < n; i++) if (where[i] === 0) q.push(i);
           q.sort((p1, p2) => s[p2] - s[p1]);
           for (const i of q) { if (d <= 0) break; where[i] = 1; if (two) { r[i] = 0.4 * B; a[i] = (i & 1 ? 0 : Math.PI) + (Math.random() - 0.5) * 0.8; h[i] = 0.05 + 0.25 * Math.random(); } else { r[i] = Math.random() * 0.3 * B; a[i] = -Math.PI / 2 * sg + (Math.random() - 0.5); h[i] = 0.6 + 0.35 * Math.random(); } d--; }
-        } else if (d < 0) { // sai pelo escape (ou volta pela admissão se só ela estiver aberta)
-          for (let i = 0; i < n && d < 0; i++) if (where[i] === 1 && Math.random() < 0.5) {
-            if (o.le > 0) { where[i] = 2; s[i] = 0; } else if (o.li > 0) { where[i] = 0; s[i] = 0.9; } else break;
-            d++;
-          }
+        } else if (d < 0 && (o.le > 0 || o.li > 0)) { // sai pelo escape (ou volta pela admissão se só ela estiver aberta)
+          const q = []; for (let i = 0; i < n; i++) if (where[i] === 1) q.push(i);
+          q.sort((p1, p2) => (burnt[p2] - burnt[p1]) || (h[p2] - h[p1]));                  // sai primeiro o gás queimado, o mais perto das válvulas
+          for (const i of q) { if (d >= 0) break; if (o.le > 0) { where[i] = 2; s[i] = 0; } else { where[i] = 0; s[i] = 0.9; } d++; }
         }
         const vIn = 0.05 + 2.5 * Math.max(0, o.mi), vEx = 0.2 + 3 * Math.max(0, o.me), H = o.crown, span = roof - H;
         const rf = o.xb > 0.005 ? Math.cbrt(o.xb) * 1.15 * B : -1, ry = roof - 0.06 * B;

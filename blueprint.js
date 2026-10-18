@@ -35,6 +35,7 @@ const Blueprint = (() => {
   function evoOf(g) { // ângulo do ciclo em que o escape abre (tirado da própria tabela de levante/janela)
     if (g._evo != null) return g._evo;
     let k = 0; for (let i = 1; i < g.Le.length; i++) if (g.Le[i] > 0 && !(g.Le[i - 1] > 0)) { k = i; break; }
+    g._exOpen = 0; for (let i = 0; i < g.Le.length; i++) if (g.Le[i] > 0) g._exOpen += 0.5;   // graus com o escape aberto
     return (g._evo = k / 2);
   }
   const frac = v => v - Math.floor(v);
@@ -411,10 +412,11 @@ const Blueprint = (() => {
         const mark = (P, f, col, a) => { const q = at(P, f); x.globalAlpha = a; pen(col, 3); ln(q[0] - q[3] * 10, q[1] + q[2] * 10, q[0] + q[3] * 10, q[1] - q[2] * 10); x.globalAlpha = 1; };
         g.lay.forEach((l, i) => {
           const hp = hdr[i % hdr.length], th = (((S.thv - l.off - E0) % C) + C) % C, col = PALC[i % PALC.length];
-          for (let kk = 0; kk < 3; kk++) {
-            const q = ug * (th + kk * C) / (6 * rpm); if (q > Lh + Lm) break;
-            const onH = q < Lh, pt = onH ? at(hp, q / Lh) : at(Mn, (q - Lh) / Lm), fade = onH ? 1 : 1 - (q - Lh) / Lm;
-            x.globalAlpha = 0.3 + 0.7 * fade; dot(pt[0], pt[1], onH ? 5 : 3 + 3 * fade, col); dot(pt[0] - pt[2] * 7, pt[1] - pt[3] * 7, onH ? 3.5 : 2.5, col); x.globalAlpha = 1;
+          for (let kk = 0; kk < 3; kk++) for (let e = 0; e < g._exOpen; e += 10) { // jato contínuo enquanto a válvula está aberta (uma "fatia" de gás a cada 10°)
+            const age = th + kk * C - e; if (age < 0) continue;
+            const q = ug * age / (6 * rpm) * (e < 40 ? 1.6 : 1); if (q > Lh + Lm) continue;      // o começo (blowdown) sai mais rápido
+            const onH = q < Lh, pt = onH ? at(hp, q / Lh) : at(Mn, (q - Lh) / Lm), fade = onH ? 1 : 1 - (q - Lh) / Lm, jit = ((i * 7 + e) % 5 - 2) * 1.6;
+            x.globalAlpha = 0.35 + 0.65 * fade; dot(pt[0] - pt[3] * jit, pt[1] + pt[2] * jit, onH ? 4.5 : 3 + 2.5 * fade, col); x.globalAlpha = 1;
           }
           const sw = aw * th / (6 * rpm);
           if (sw < Lh) mark(hp, sw / Lh, '#ffe0a0', 0.95);

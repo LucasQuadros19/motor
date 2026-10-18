@@ -176,7 +176,10 @@ const fold = (side, on) => { document.body.classList.toggle(side, on); try { loc
 $('foldL').onclick = () => fold('noL', true); $('openL').onclick = () => fold('noL', false); $('foldR').onclick = () => fold('noR', true); $('openR').onclick = () => fold('noR', false);
 try { for (const k of ['noL', 'noR']) if (localStorage.getItem(k)) document.body.classList.add(k); } catch (e) { }
 function setSheet(s) { sheet = s; document.querySelectorAll('#viewbar [data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === s)); }
-document.querySelectorAll('#viewbar [data-s]').forEach(b => { b.onclick = () => setSheet(b.dataset.s); });
+document.querySelectorAll('#viewbar [data-s]').forEach(b => { b.onclick = () => {
+  setSheet(b.dataset.s);
+  if (b.dataset.s === 'exhaust' && started && +$('ts').value === 1) { $('ts').value = '0.02'; send({ ts: 0.02 }); say('Câmera lenta 1:50 para ver o gás de cada cilindro e as ondas de pressão no escape — volte o tempo em "Câmera lenta" quando quiser.'); }
+}; });
 document.querySelectorAll('#viewbar [data-f]').forEach(b => { b.onclick = () => { if (mode !== '3d') setMode('3d'); setFocus(b.dataset.f || null); }; });
 
 // ---------- explicações ao parar o mouse ----------
