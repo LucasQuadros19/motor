@@ -17,6 +17,28 @@ const Blueprint = (() => {
   let x, W, H, placed = [];
   const hist = [];
 
+  // ---------- animação: relógio visual próprio (a prancha é redesenhada a ~30 Hz; câmera lenta desacelera tudo) ----------
+  const A = { t: 0, last: 0, dt: 0, aT: 0, aI: 0, aO: 0, aF: 0 };
+  const PALC = ['#ff6b5b', '#ffc04d', '#6fe08a', '#5bc0ff', '#c48bff', '#ff8fd0', '#9cf0e6', '#f0e68c', '#ff9a3c', '#8fb8ff', '#b5ff6b', '#ffd1a1'];
+  function flowLine(pts, col, spd, w = 2.2, dash = [7, 9]) { // traço que anda no sentido do fluxo (spd em px/s)
+    if (spd <= 0.5) { pen(col, w * 0.6, [2, 6]); path(pts); x.stroke(); x.setLineDash([]); return; }
+    pen(col, w, dash); x.lineDashOffset = -((A.t * spd) % (dash[0] + dash[1])); path(pts); x.stroke(); x.setLineDash([]); x.lineDashOffset = 0;
+  }
+  function poly(pts) { const L = [0]; for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); return { pts, L, len: L[L.length - 1] }; }
+  function at(P, f) { // ponto e direção a uma fração f do comprimento da polilinha
+    const s = clamp(f, 0, 1) * P.len; let i = 1; while (i < P.L.length - 1 && P.L[i] < s) i++;
+    const a = P.pts[i - 1], b = P.pts[i], u = (s - P.L[i - 1]) / Math.max(1e-9, P.L[i] - P.L[i - 1]), dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1;
+    return [a[0] + dx * u, a[1] + dy * u, dx / l, dy / l];
+  }
+  const dot = (px, py, r, col) => { x.fillStyle = col; x.beginPath(); x.arc(px, py, Math.max(0.5, r), 0, 7); x.fill(); };
+  const quad = (x0, y0, cx, cy, x1, y1, n = 16) => Array.from({ length: n + 1 }, (_, i) => { const t = i / n, u = 1 - t; return [u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1]; });
+  function evoOf(g) { // ângulo do ciclo em que o escape abre (tirado da própria tabela de levante/janela)
+    if (g._evo != null) return g._evo;
+    let k = 0; for (let i = 1; i < g.Le.length; i++) if (g.Le[i] > 0 && !(g.Le[i - 1] > 0)) { k = i; break; }
+    return (g._evo = k / 2);
+  }
+  const frac = v => v - Math.floor(v);
+
   // ---------- primitivas ----------
   const pen = (c = INK, w = 1.5, dash = []) => { x.strokeStyle = c; x.lineWidth = w; x.setLineDash(dash); };
   const ln = (a, b, c, d) => { x.beginPath(); x.moveTo(a, b); x.lineTo(c, d); x.stroke(); };
@@ -308,6 +330,7 @@ const Blueprint = (() => {
       lab(nm, bx + bw / 2, cy - h / 2 - 16, 'center', 9, INK); lab(v, bx + bw / 2, cy + h / 2 + 16, 'center', 9, THIN);
       if (i) arrow(bx - gap + 2, cy, bx - 2, cy, AIR, 6);
     });
+    { const rpm = st.rpm || 0, q = clamp((st.ve || 0) / 100 * rpm / g.limit, 0, 1.4); flowLine([[p1.x, cy], [p1.x + p1.w, cy]], AIR, 15 + 160 * q, 3, [6, 8]); }   // ar andando: velocidade ∝ vazão
     // vazão na válvula ao longo do ciclo × levante
     const p2 = panel(r.x, r.y + r.h * 0.48, r.w * 0.6, r.h * 0.52, 'VAZÃO NA ADMISSÃO DO CILINDRO 1 (g/s)'), tr = S.tr;
     if (tr) {
@@ -344,17 +367,33 @@ const Blueprint = (() => {
       dim(p1.x, cy + rb * ky + 40, p1.x + s4 * k, cy + rb * ky + 40, 10, `${fmt(s4 * 1000, 0)} até o fim do cone convergente`);
       lab('CONE DIVERGENTE → devolve DEPRESSÃO (puxa a mistura)', p1.x + (s1 + s2) / 2 * k, cy - rb * ky - 14, 'center', 9, AIR);
       lab('CONE CONVERGENTE → devolve PULSO (empurra de volta)', p1.x + (s3 + s4) / 2 * k, cy - rb * ky - 30, 'center', 9, HOT);
+      const rpm = st.rpm || 0;
+      if (rpm > 60 && S.thv != null) { // onda que sai da janela, reflexões nos cones e o gás (mais lento que a onda)
+        const C = g.cyc, th = (((S.thv - g.lay[0].off - evoOf(g)) % C) + C) % C, t = th / (6 * rpm), aw = Math.sqrt(1.33 * 287 * ((st.egt || 300) + 273)), ug = clamp(15 + 70 * rpm / g.limit, 10, 120);
+        const X0 = q => p1.x + q * k, vline = (q, col, a) => { if (q < 0 || q > Lt) return; x.globalAlpha = a; pen(col, 3); ln(X0(q), cy - rf(q) * ky + 2, X0(q), cy + rf(q) * ky - 2); x.globalAlpha = 1; };
+        const sw = aw * t, sd = (s1 + s2) / 2, sc = (s3 + s4) / 2;
+        vline(sw, '#ffe0a0', 0.9);
+        if (sw > sd) vline(2 * sd - sw, '#6fb6ff', 0.85);                        // depressão refletida pelo cone divergente
+        if (sw > sc) vline(2 * sc - sw, '#ff9a3c', 0.95);                        // pulso refletido pelo convergente volta à janela
+        for (let kk = 0; kk < 3; kk++) { const q = ug * (th + kk * C) / (6 * rpm); if (q > Lt) break; for (const j of [-0.45, 0, 0.45]) dot(X0(q) + j * 4, cy + j * rf(q) * ky, 3.5, `rgba(255,140,80,${0.9 - kk * 0.25})`); }
+        lab('traço claro = onda de pressão · azul = depressão refletida · laranja = pulso que volta · pontos = gás', p1.x + p1.w / 2, p1.y + p1.h - 6, 'center', 9, THIN);
+      }
     } else {
       const parts = [['COLETOR', g.rot ? `${g.n} rotores` : `${g.nch} → ${g.grp.length}`, 0.9]];
       if (g.fi && g.fi.type === 'turbo') parts.push(['TURBINA', `${fmt(st.pt, 0)} kPa`, 0.8]);
       if (X.cat) parts.push(['CATALISADOR', 'colmeia cerâmica', 1.1]); if (X.res) parts.push(['RESSONADOR', 'anti-ronco', 0.9]);
       if (X.muff) parts.push([X.muff > 1 ? 'ABAFADOR 2 CÂMARAS' : 'ABAFADOR RETO', X.muff > 1 ? 'chicanas' : 'fibra', 1.6]);
       parts.push(['PONTEIRA', X.muff ? '' : 'saída direta', 0.5]);
-      const tot = parts.reduce((s, p) => s + p[2], 0) + (parts.length - 1) * 0.35, k = p1.w / tot, rp = 7;
+      const tot = parts.reduce((s, p) => s + p[2], 0) + (parts.length - 1) * 0.35, k = p1.w / tot, rp = 7, egt = st.egt || 20, hdr = [];
+      const colX = p1.x + parts[0][2] * k, endX = p1.x + p1.w;
+      { const gr = x.createLinearGradient(colX, 0, endX, 0); gr.addColorStop(0, heatCss(0.55 * egt, 0.5)); gr.addColorStop(1, heatCss(0.22 * egt, 0.35)); x.fillStyle = gr; x.fillRect(colX, cy - rp - 3, endX - colX, 2 * rp + 6); }  // parede do tubo: esfria ao longo da linha
       let px = p1.x;
       parts.forEach(([nm, v, len], i) => {
         const w = len * k, h = nm.startsWith('ABAF') ? 56 : nm === 'CATALISADOR' ? 44 : nm === 'RESSONADOR' ? 34 : nm === 'TURBINA' ? 40 : 2 * rp + 6;
-        if (nm === 'COLETOR') { const m = Math.min(4, g.grp.length > 1 ? 2 : g.nch); for (let j = 0; j < m; j++) { pen(INK, 1.2); x.beginPath(); x.moveTo(px, cy - 30 + j * 20); x.quadraticCurveTo(px + w * 0.6, cy - 30 + j * 20, px + w, cy); x.stroke(); } }
+        if (nm === 'COLETOR') { // um tubo por cilindro (até 6), cor = temperatura da parede
+          const m = Math.min(6, g.nch), span = Math.min(p1.h * 0.62, 24 * (m - 1));
+          for (let j = 0; j < m; j++) { const y0 = cy - span / 2 + (m > 1 ? j * span / (m - 1) : 0), pts = quad(px, y0, px + w * 0.6, y0, px + w, cy); hdr.push(poly(pts)); pen(heatCss(0.62 * egt, 0.55), 9); path(pts); x.stroke(); pen(INK, 1.2); path(pts); x.stroke(); }
+        }
         else {
           x.fillStyle = 'rgba(230,242,255,0.05)'; x.fillRect(px, cy - h / 2, w, h); hatch(() => { x.rect(px, cy - h / 2, w, 5); x.rect(px, cy + h / 2 - 5, w, 5); }, 4); pen(INK, 1.3); x.strokeRect(px, cy - h / 2, w, h);
           if (nm === 'CATALISADOR') { pen(THIN, 0.6); for (let j = 1; j < 9; j++) ln(px + w * 0.15, cy - h / 2 + j * h / 9, px + w * 0.85, cy - h / 2 + j * h / 9); }
@@ -363,8 +402,27 @@ const Blueprint = (() => {
         }
         lab(nm, px + w / 2, cy - h / 2 - 14, 'center', 9, INK); if (v) lab(v, px + w / 2, cy + h / 2 + 14, 'center', 9, THIN);
         px += w;
-        if (i < parts.length - 1) { pen(INK, 1.3); ln(px, cy - rp, px + 0.35 * k, cy - rp); ln(px, cy + rp, px + 0.35 * k, cy + rp); arrow(px + 2, cy, px + 0.35 * k - 2, cy, HOT, 5); px += 0.35 * k; }
+        if (i < parts.length - 1) { pen(INK, 1.3); ln(px, cy - rp, px + 0.35 * k, cy - rp); ln(px, cy + rp, px + 0.35 * k, cy + rp); px += 0.35 * k; }
       });
+      const rpm = st.rpm || 0;
+      if (rpm > 60 && S.thv != null && hdr.length) { // gás de cada cilindro (cor) e a onda de pressão do último pulso
+        const C = g.cyc, E0 = evoOf(g), Lh = g.E.lex || 0.5, Lm = 2.6, egtK = egt + 273, ug = clamp(12 + 80 * rpm / g.limit * (0.35 + 0.65 * (S.tps || 0)), 8, 140), aw = Math.sqrt(1.33 * 287 * egtK);
+        const Mn = poly([[colX, cy], [endX, cy]]);
+        const mark = (P, f, col, a) => { const q = at(P, f); x.globalAlpha = a; pen(col, 3); ln(q[0] - q[3] * 10, q[1] + q[2] * 10, q[0] + q[3] * 10, q[1] - q[2] * 10); x.globalAlpha = 1; };
+        g.lay.forEach((l, i) => {
+          const hp = hdr[i % hdr.length], th = (((S.thv - l.off - E0) % C) + C) % C, col = PALC[i % PALC.length];
+          for (let kk = 0; kk < 3; kk++) {
+            const q = ug * (th + kk * C) / (6 * rpm); if (q > Lh + Lm) break;
+            const onH = q < Lh, pt = onH ? at(hp, q / Lh) : at(Mn, (q - Lh) / Lm), fade = onH ? 1 : 1 - (q - Lh) / Lm;
+            x.globalAlpha = 0.3 + 0.7 * fade; dot(pt[0], pt[1], onH ? 5 : 3 + 3 * fade, col); dot(pt[0] - pt[2] * 7, pt[1] - pt[3] * 7, onH ? 3.5 : 2.5, col); x.globalAlpha = 1;
+          }
+          const sw = aw * th / (6 * rpm);
+          if (sw < Lh) mark(hp, sw / Lh, '#ffe0a0', 0.95);
+          else if (sw < 2 * Lh) { mark(hp, (2 * Lh - sw) / Lh, '#6fb6ff', 0.85); mark(Mn, (sw - Lh) / Lm, '#ffe0a0', 0.55); }
+          else if (sw - Lh < Lm) mark(Mn, (sw - Lh) / Lm, '#ffe0a0', 0.4 * (1 - (sw - Lh) / Lm));
+        });
+        lab('pontos = gás de cada cilindro (cor) · traço claro = onda de pressão (som) · azul = depressão refletida na junção', p1.x + p1.w / 2, p1.y + p1.h - 6, 'center', 9, THIN);
+      } else lab('ligue o motor para ver os pulsos', p1.x + p1.w / 2, p1.y + p1.h - 6, 'center', 9, THIN);
     }
     // onda de pressão no header (ida + volta refletida)
     const p2 = panel(r.x, r.y + r.h * 0.5, r.w * 0.6, r.h * 0.5, 'PRESSÃO AO LONGO DO HEADER AGORA (kPa, onda)');
@@ -381,10 +439,79 @@ const Blueprint = (() => {
   }
 
   // ---------- turbo ----------
+  // Desenho animado: caracóis (voluta) vistos de frente, rotores girando na rotação simulada do eixo,
+  // gás de escape (cor = temperatura) entrando no caracol da turbina e saindo pelo centro; ar entrando
+  // pelo centro do compressor e saindo pelo caracol para o intercooler; wastegate e válvula de alívio.
+  function turboDrawing(S, g, p) {
+    const st = S.st || {}, F = g.fi, turbo = F.type === 'turbo', cy = p.y + p.h * 0.54, R = Math.min(p.h * 0.36, p.w * (turbo ? 0.165 : 0.2));
+    const w = (st.trpm || 0) * Math.PI / 30, step = w * A.dt; A.aT += Math.min(step, 0.42);          // no máx. ~24° por quadro: acima disso o olho só veria borrão
+    const blur = clamp((step - 0.42) / 1.5, 0, 0.55), flowF = clamp((st.mc || 0) / F.mch, 0, 1), egt = st.egt || 20, T2 = st.T2 != null ? st.T2 : 25;
+    const cxC = p.x + p.w * (turbo ? 0.72 : 0.66), cxT = p.x + p.w * (turbo ? 0.28 : 0.24), rw = 0.58 * R;
+    const rOut = f => R * (0.66 + 0.34 * f / (2 * Math.PI));
+    const P = (cx, d, f, r) => [cx + d * r * Math.cos(f - Math.PI / 2), cy + r * Math.sin(f - Math.PI / 2)];
+    function volute(cx, d, fill) { // espiral cuja distância ao rotor cresce até a boca (a vazão vai se somando)
+      x.beginPath(); for (let i = 0; i <= 60; i++) { const f = i / 60 * 2 * Math.PI, q = P(cx, d, f, rOut(f)); i ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1]); }
+      x.lineTo(cx + d * 1.25 * R, cy - R); x.lineTo(cx + d * 1.25 * R, cy - 0.66 * R); x.closePath();
+      x.moveTo(cx + rw + 4, cy); x.arc(cx, cy, rw + 4, 0, 7);
+      x.fillStyle = fill; x.fill('evenodd'); pen(INK, 1.4); x.stroke();
+    }
+    function wheel(cx, n, split, sweep, a, col) { // rotor visto de frente: pás curvas (inteiras + intermediárias)
+      x.fillStyle = 'rgba(12,42,76,0.9)'; x.beginPath(); x.arc(cx, cy, rw, 0, 7); x.fill(); pen(THIN, 1); x.stroke();
+      for (let k = 0; k < n * (split ? 2 : 1); k++) {
+        const main = !split || k % 2 === 0, a0 = a + k * Math.PI * 2 / (n * (split ? 2 : 1)), r0 = main ? 0.17 * R : 0.32 * R;
+        x.beginPath(); for (let i = 0; i <= 8; i++) { const rr = r0 + (rw - 2 - r0) * i / 8, f = a0 + sweep * (rr - 0.17 * R) / (rw - 0.17 * R); const q = [cx + rr * Math.cos(f), cy + rr * Math.sin(f)]; i ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1]); }
+        pen(col, main ? 2.4 : 1.6); x.stroke();
+      }
+      dot(cx, cy, 0.17 * R, '#2a4f78'); pen(INK, 1); x.beginPath(); x.arc(cx, cy, 0.17 * R, 0, 7); x.stroke(); dot(cx, cy, 0.06 * R, INK);
+      if (blur > 0) { x.fillStyle = `rgba(200,220,240,${blur * 0.5})`; x.beginPath(); x.arc(cx, cy, rw, 0, 7); x.fill(); }
+    }
+    const pathOf = (cx, d, f0, swirl) => { // caminho de uma partícula: centro → ponta da pá → volta no caracol → boca
+      const pts = []; for (let q = 0; q <= 6; q++) { const rr = 0.12 * R + q / 6 * (rw - 0.12 * R); pts.push(P(cx, d, f0 - swirl * (1 - q / 6), rr)); }
+      for (let f = f0; f <= 2 * Math.PI; f += 0.18) pts.push(P(cx, d, f, (rw + 4 + rOut(f)) / 2));
+      pts.push([cx + d * 0.2 * R, cy - 0.83 * R], [cx + d * 1.55 * R, cy - 0.83 * R]); return poly(pts);
+    };
+    // carcaça central: eixo e mancais em óleo (o óleo entra por cima, sai por baixo)
+    const hx0 = cxT + (turbo ? rw + 10 : 0.55 * R + 10), hx1 = cxC - rw - 10;
+    x.fillStyle = 'rgba(230,242,255,0.06)'; x.fillRect(hx0, cy - 0.2 * R, hx1 - hx0, 0.4 * R); hatch(() => { x.rect(hx0, cy - 0.2 * R, hx1 - hx0, 0.07 * R); x.rect(hx0, cy + 0.13 * R, hx1 - hx0, 0.07 * R); }, 5);
+    pen(INK, 1.2); x.strokeRect(hx0, cy - 0.2 * R, hx1 - hx0, 0.4 * R);
+    flowLine([[hx0, cy], [hx1, cy]], '#cfe3ff', Math.min(160, w / 40), 3, [3, 5]);
+    const pO = st.heat ? st.heat.pOil : 0, ox = (hx0 + hx1) / 2;
+    flowLine([[ox, cy - 0.2 * R - 34], [ox, cy - 0.2 * R]], '#d9a441', 12 * pO, 2.5); flowLine([[ox, cy + 0.2 * R], [ox, cy + 0.2 * R + 30]], '#d9a441', 10 * pO, 2.5);
+    lab(`EIXO ${fmt((st.trpm || 0) / 1000, 0)} mil rpm`, ox, cy - 0.2 * R - 46, 'center', 9, INK); lab(`óleo ${fmt(pO, 1)} bar`, ox, cy + 0.2 * R + 42, 'center', 9, '#d9a441');
+    // compressor
+    volute(cxC, 1, heatCss(25 + (T2 - 25) * 0.7, 0.28)); wheel(cxC, 7, true, -1.1, A.aT, '#e6f2ff');
+    const nA = 6 + Math.round(30 * flowF), spdA = 0.08 + 0.9 * flowF;
+    for (let i = 0; i < nA; i++) { const Pp = pathOf(cxC, 1, (i * 2.39996) % (2 * Math.PI), 0.9), u = frac(A.t * spdA + i * 0.618), q = at(Pp, u); dot(q[0], q[1], 3, heatCss(25 + (T2 - 25) * u)); }
+    pen(AIR, 1.5); x.beginPath(); x.arc(cxC, cy, 0.09 * R, 0, 7); x.stroke(); ln(cxC - 0.06 * R, cy - 0.06 * R, cxC + 0.06 * R, cy + 0.06 * R); ln(cxC - 0.06 * R, cy + 0.06 * R, cxC + 0.06 * R, cy - 0.06 * R);
+    lab('COMPRESSOR', cxC, cy + R + 14, 'center', 10, INK); lab(`ar entra pelo centro (⊗) · ${fmt(st.PR || 1, 2)}:1 · sai a ${fmt(T2, 0)} °C`, cxC, cy + R + 28, 'center', 9, THIN);
+    lab('→ intercooler', cxC + 1.3 * R, cy - R - 10, 'center', 9, AIR);
+    // válvula de alívio na saída do compressor
+    const bx = cxC + 0.95 * R, by = cy - R; pen(INK, 1.2); x.strokeRect(bx - 8, by - 18, 16, 14); lab('BOV', bx, by - 26, 'center', 8, THIN);
+    if (st.bov) for (let i = 0; i < 6; i++) { const u = frac(A.t * 1.5 + i / 6); dot(bx + (i - 2.5) * 3, by - 20 - u * 26, 2.5 * (1 - u) + 0.5, `rgba(127,184,255,${1 - u})`); }
+    if (turbo) { // turbina
+      volute(cxT, -1, heatCss(egt * 0.75, 0.32)); wheel(cxT, 11, false, 1.0, -A.aT, '#9fb2c6');
+      const nG = 6 + Math.round(30 * flowF), wg = clamp((st.wg || 0) / 100, 0, 1);
+      for (let i = 0; i < nG; i++) { const Pp = pathOf(cxT, -1, (i * 2.39996) % (2 * Math.PI), 0.9), u = frac(A.t * spdA + i * 0.618), q = at(Pp, 1 - u); dot(q[0], q[1], 3.2, heatCss(egt * (0.75 + 0.25 * u))); }
+      pen(HOT, 1.5); x.beginPath(); x.arc(cxT, cy, 0.09 * R, 0, 7); x.stroke(); dot(cxT, cy, 2.5, HOT);
+      lab('TURBINA', cxT, cy + R + 14, 'center', 10, INK); lab(`gás a ${fmt(egt, 0)} °C entra pelo caracol, sai pelo centro (⊙)`, cxT, cy + R + 28, 'center', 9, THIN);
+      lab('← do coletor', cxT - 1.3 * R, cy - R - 10, 'center', 9, HOT);
+      // wastegate: desvio antes do rotor
+      const wx = cxT - 1.35 * R, wy = cy - 0.66 * R; pen(INK, 1.2); ln(wx - 6, wy, wx - 6, cy + R * 0.9); ln(wx + 6, wy, wx + 6, cy + R * 0.9);
+      pen(SEL, 2.5); ln(wx - 6, wy + 2, wx - 6 + 12 * Math.cos(wg * 1.2), wy + 2 + 12 * Math.sin(wg * 1.2));
+      if (wg > 0.02) for (let i = 0; i < Math.round(3 + 10 * wg); i++) { const u = frac(A.t * (0.4 + spdA) + i * 0.37); dot(wx, wy + 6 + u * (cy + 0.9 * R - wy - 6), 2.6, heatCss(egt)); }
+      lab(`WASTEGATE ${fmt(wg * 100, 0)}%`, wx, cy + R + 4, 'center', 9, wg > 0.02 ? SEL : THIN);
+    } else { // supercharger: polia tocada pela correia do virabrequim
+      const pr = 0.5 * R, aP = A.aT / (F.ratio || 3); x.beginPath(); x.arc(cxT, cy, pr, 0, 7); pen(INK, 1.5); x.stroke();
+      for (let k = 0; k < 6; k++) { const f = aP + k * Math.PI / 3; pen(THIN, 2); ln(cxT, cy, cxT + pr * Math.cos(f), cy + pr * Math.sin(f)); }
+      flowLine([[cxT - pr, cy - 4], [cxT - pr, cy + 1.2 * R]], '#cfe3ff', w / (F.ratio || 3) * pr / 6, 3, [6, 6]);
+      lab('POLIA (correia do virabrequim)', cxT, cy + R + 14, 'center', 10, INK);
+    }
+  }
   function turboSheet(S, g, r) {
     const st = S.st || {}, F = g.fi;
     if (!F) { txt('Motor aspirado — sem turbo ou supercharger.', r.x + r.w / 2, r.y + r.h / 2, 'center', 12, THIN); return; }
-    const p1 = panel(r.x, r.y, r.w * 0.6, r.h * 0.62, 'MAPA DO COMPRESSOR'), TA = 298, Nd = F.Nd;
+    turboDrawing(S, g, panel(r.x, r.y, r.w * 0.58, r.h * 0.64, F.type === 'turbo' ? 'TURBO EM CORTE · ANIMADO PELA SIMULAÇÃO' : 'SUPERCHARGER · ANIMADO PELA SIMULAÇÃO'));
+    const p1 = panel(r.x + r.w * 0.61, r.y, r.w * 0.39, r.h * 0.64, 'MAPA DO COMPRESSOR'), TA = 298, Nd = F.Nd;
     const mmax = F.mch * 1.25, PRmax = 1 + (Math.pow(1 + 0.675 * Math.pow(Nd * 1.15 * F.rc, 2) / (1005 * TA), 3.5) - 1) * 1.05;
     const q = plot(p1, [0, mmax], [], { x0: 0, x1: mmax, y0: 1, y1: PRmax, xl: 'vazão de ar (kg/s)', yl: 'razão de pressão', xd: 2, yd: 1 });
     const surge = [], choke = [];
@@ -398,13 +525,13 @@ const Blueprint = (() => {
     lab('SURGE (fluxo volta)', surge[surge.length - 1][0] - 4, surge[surge.length - 1][1] - 10, 'right', 9, BAD); lab('CHOKE (som no rotor)', choke[choke.length - 1][0], choke[choke.length - 1][1] + 12, 'center', 9, HOT);
     if (st.PR) { const px = q.X(clamp(st.mc || 0, 0, mmax)), py = q.Y(clamp(st.PR, 1, PRmax)); x.fillStyle = SEL; x.beginPath(); x.arc(px, py, 6, 0, 7); x.fill(); lab(`AGORA ${fmt(st.PR, 2)}:1`, px + 10, py - 10, 'left', 10, SEL); }
     // circuito do ar (vertical)
-    const p2 = panel(r.x + r.w * 0.63, r.y, r.w * 0.37, r.h * 0.62, 'CIRCUITO DO AR'), turbo = F.type === 'turbo';
+    const p2 = panel(r.x, r.y + r.h * 0.69, r.w * 0.4, r.h * 0.31, 'CIRCUITO DO AR'), turbo = F.type === 'turbo';
     const items = [['FILTRO', `${fmt(st.Tamb != null ? st.Tamb : 25, 0)} °C`], [turbo ? 'COMPRESSOR' : 'SUPERCHARGER', `${fmt(st.PR || 1, 2)}:1 · ${fmt((st.trpm || 0) / 1000, 0)}k rpm`], ['INTERCOOLER', `${fmt(st.T2, 0)} → ${fmt(st.Tab, 0)} °C`], ['BORBOLETA', `${fmt((S.tps || 0) * 100, 0)}%`], ['MOTOR', `+${fmt(Math.max(0, st.boost || 0), 0)} kPa`]];
     if (turbo) items.push(['TURBINA', `${fmt(st.pt, 0)} kPa · WG ${fmt(st.wg, 0)}%`], ['ESCAPE', `${fmt(st.egt, 0)} °C`]);
-    const bh = Math.min(34, (p2.h - 10 * (items.length - 1)) / items.length);
-    items.forEach(([nm, v], i) => { const y = p2.y + i * (bh + 10); pen(nm === 'MOTOR' ? SEL : INK, 1.3); x.strokeRect(p2.x, y, p2.w, bh); txt(nm, p2.x + 8, y + bh / 2, 'left', 9, INK); txt(v, p2.x + p2.w - 8, y + bh / 2, 'right', 9, THIN); if (i) arrow(p2.x + p2.w / 2, y - 10, p2.x + p2.w / 2, y - 1, nm === 'TURBINA' || nm === 'ESCAPE' ? HOT : AIR, 5); });
-    reserve(p2.x, p2.y, p2.w, items.length * (bh + 10));
-    const p3 = panel(r.x, r.y + r.h * 0.67, r.w, r.h * 0.33, 'COMO FUNCIONA');
+    const rh3 = Math.min(17, (p2.h - 4) / items.length);
+    items.forEach(([nm, v], i) => { const y = p2.y + 6 + i * rh3; txt((i ? '↓ ' : '') + nm, p2.x, y, 'left', 9, nm === 'TURBINA' || nm === 'ESCAPE' ? HOT : nm === 'MOTOR' ? SEL : INK); txt(v, p2.x + p2.w, y, 'right', 9, THIN); });
+    reserve(p2.x, p2.y, p2.w, items.length * rh3 + 6);
+    const p3 = panel(r.x + r.w * 0.43, r.y + r.h * 0.69, r.w * 0.57, r.h * 0.31, 'COMO FUNCIONA');
     wrap([turbo ? 'A turbina, girando com o gás de escape, move o compressor no mesmo eixo. Cada linha do mapa é uma rotação do eixo: mais rotação, mais pressão. À esquerda da linha vermelha (surge) o ar volta pelo compressor; à direita (choke) ele não consegue passar mais rápido. A wastegate desvia gás da turbina para segurar a pressão alvo.' : 'O supercharger é tocado pela correia do virabrequim: a rotação do rotor acompanha o motor, então a pressão sobe com o giro sem atraso, mas custa potência do próprio motor.',
       'Comprimir esquenta o ar (veja a temperatura depois do compressor); o intercooler resfria para o ar entrar mais denso e com menos risco de detonação.'], p3, 10);
   }
@@ -495,6 +622,16 @@ const Blueprint = (() => {
         pen(on ? SEL : INK, 1.2); x.strokeRect(gx - 6, yI - hi * 0.5, 12, hi); x.strokeRect(gx - 6, lo - (span - hi) * 0.5, 12, span - hi);
         lab(`${i + 1}ª`, gx, yI - hi * 0.5 - 10, 'center', 9, on ? SEL : THIN); lab(fmt(rr, 2), gx, lo + (span - hi) * 0.5 + 10, 'center', 8, THIN);
       });
+      // dentes andando: engrenagens engrenadas têm a mesma velocidade na linha de contato (sentidos opostos)
+      const wIn = st.clutch > 0.5 ? Math.abs(d.wIn || 0) : (st.rpm || 0) * Math.PI / 30 / (V.car ? 1 : V.primary || 1), lin = Math.min(wIn * A.dt * 18, 4.5);
+      A.aI += lin; const off = A.aI % 5;
+      const teeth = (gx, y0, h, o) => { x.save(); x.beginPath(); x.rect(gx - 6, y0, 12, h); x.clip(); pen('rgba(230,242,255,0.6)', 1); for (let yy = y0 - 5 + ((o % 5) + 5) % 5; yy < y0 + h; yy += 5) ln(gx - 6, yy, gx + 6, yy); x.restore(); };
+      ratios.forEach((rr, i) => { const gx = pairsX + gw * (i + 0.5), zi = Math.round(54 / (1 + rr)), lo = type === 'manual' ? yC : yO, span = lo - yI, hi = span * zi / 54; teeth(gx, yI - hi * 0.5, hi, off); teeth(gx, lo - (span - hi) * 0.5, span - hi, -off); });
+      if (sel !== 0 && st.clutch < 0.5) { // caminho da força: entrada → par engatado → saída
+        const gxS = sel > 0 ? pairsX + gw * (sel - 0.5) : pairsX + gw * (n + 0.8), sp = Math.min(160, 20 + wIn * 0.15), xe = p1.x + p1.w - 20;
+        const pts = type === 'manual' ? (sel > 0 && sel === (rs => rs.findIndex(v => Math.abs(v - 1) < 0.03) + 1)(ratios) ? [[p1.x + 26, yI], [xe, yI]] : [[p1.x + 26, yI], [pairsX - 24, yI], [pairsX - 24, yC], [gxS, yC], [gxS, yI], [xe, yI]]) : [[p1.x + 26, yI], [gxS, yI], [gxS, yO], [xe, yO]];
+        flowLine(pts, SEL, sp, 3.2, [10, 8]); lab('caminho da força', xe - 4, (type === 'manual' ? yI : yO) + 14, 'right', 9, SEL);
+      }
       if (type === 'manual') { const gx = pairsX + gw * (n + 0.8), on = sel < 0; pen(on ? SEL : INK, 1.3); x.strokeRect(gx - 6, yI - 14, 12, 28); x.strokeRect(gx - 6, yC - 10, 12, 20); x.beginPath(); x.arc(gx + 18, (yI + yC) / 2, 9, 0, 7); x.stroke(); lab('R (intermediária)', gx, yI - 26, 'center', 9, on ? SEL : THIN); }
       if (type === 'manual') { // grelha do H com a posição atual
         const hx = p1.x + p1.w - 110, hy = p1.y + 20, cols = Math.ceil(n / 2) + 1, cwid = 22;
@@ -538,7 +675,22 @@ const Blueprint = (() => {
       pen(INK, 1.2); x.strokeRect(tmx - 34, tmy - 12, 68, 24); txt('TERMOSTÁTICA', tmx, tmy - 20, 'center', 8, THIN); txt(th ? `${fmt(th.thermo * 100, 0)}% aberta` : '–', tmx, tmy, 'center', 9, SEL); reserve(tmx - 40, tmy - 28, 80, 42);
       pen(INK, 1.2); x.beginPath(); x.arc(tmx, pmY, 14, 0, 7); x.stroke(); txt("BOMBA", tmx, pmY + 24, 'center', 8, THIN); reserve(tmx - 30, pmY - 14, 60, 44);
       const hot = th ? heatCss(th.cool, 1) : HOT, cold = th ? heatCss(th.cool - 12, 1) : AIR, lv = th ? th.lvlC : 1;
+      // ar atravessando o radiador (movimento do veículo + ventoinha) e a ventoinha girando
+      const rpm = st.rpm || 0, th2 = th || {}, vAir = Math.abs(st.kmh || 0) / 3.6 + (th2.fan ? 6 : 0), rcy = c.y + 6 + c.h * 0.36, fr = Math.min(w3 * 0.32, c.h * 0.2);
+      for (let k = 0; k < 5; k++) { const yy = c.y + 16 + k * (c.h * 0.72 - 20) / 4; flowLine([[radX - 2, yy], [radX + w3 * 0.9 + 2, yy]], 'rgba(127,184,255,0.55)', vAir * 9, 1.6, [4, 8]); }
+      A.aF += (th2.fan ? 22 : Math.min(8, vAir * 0.8)) * A.dt;
+      x.fillStyle = 'rgba(12,42,76,0.7)'; x.beginPath(); x.arc(radX + w3 * 0.45, rcy, fr, 0, 7); x.fill(); pen(th2.fan ? SEL : THIN, 1.2); x.stroke();
+      for (let k = 0; k < 5; k++) { const f = A.aF + k * 2 * Math.PI / 5; x.fillStyle = th2.fan ? 'rgba(255,154,60,0.7)' : 'rgba(143,187,230,0.5)'; x.beginPath(); x.ellipse(radX + w3 * 0.45 + Math.cos(f) * fr * 0.55, rcy + Math.sin(f) * fr * 0.55, fr * 0.42, fr * 0.14, f, 0, 7); x.fill(); }
+      lab(th2.fan ? 'VENTOINHA LIGADA' : 'ventoinha desligada', radX + w3 * 0.45, rcy + fr + 12, 'center', 8, th2.fan ? SEL : THIN);
+      // termostática: disco que abre com a cera dilatando
+      const ta = (th2.thermo || 0) * 80 * DEG; pen(SEL, 2.4); ln(tmx - 10 * Math.cos(ta), tmy - 10 * Math.sin(ta), tmx + 10 * Math.cos(ta), tmy + 10 * Math.sin(ta));
       if (lv > 0.02) {
+        const q = (10 + 90 * rpm / g.limit) * Math.min(1, lv * 1.5), qr = q * clamp(th2.thermo || 0, 0, 1), qb = q * (1 - clamp(th2.thermo || 0, 0, 1));   // vazão da bomba: radiador × desvio
+        flowLine([[engX, tmy], [tmx + 36, tmy]], hot, q, 3); flowLine([[tmx - 36, tmy], [radX + w3 * 0.9 + 2, tmy]], hot, qr, 3);
+        flowLine([[radX + w3 * 0.45, c.y + 6 + c.h * 0.72], [radX + w3 * 0.45, pmY], [tmx - 15, pmY]], cold, qr, 3);
+        flowLine([[tmx + 15, pmY], [engX + w3 / 2, pmY], [engX + w3 / 2, c.y + c.h * 0.78 + 2]], cold, q, 3);
+        flowLine([[tmx, tmy + 12], [tmx, pmY - 14]], hot, qb, 2.5);
+        A.aI += Math.min(rpm * Math.PI / 30 * A.dt, 0.5); for (let k = 0; k < 4; k++) { const f = A.aI + k * Math.PI / 2; pen(THIN, 1.5); ln(tmx, pmY, tmx + 11 * Math.cos(f), pmY + 11 * Math.sin(f)); }   // rotor da bomba
         arrow(engX, tmy, tmx + 36, tmy, hot); arrow(tmx - 36, tmy, radX + w3 * 0.9 + 2, tmy, hot);          // motor → termostática → radiador
         arrow(radX + w3 * 0.45, c.y + 6 + c.h * 0.72, radX + w3 * 0.45, pmY, cold); arrow(radX + w3 * 0.45, pmY, tmx - 15, pmY, cold);
         arrow(tmx + 15, pmY, engX + w3 / 2, pmY, cold); arrow(engX + w3 / 2, pmY, engX + w3 / 2, c.y + c.h * 0.46 + c.h * 0.32 + 2, cold);
@@ -548,7 +700,8 @@ const Blueprint = (() => {
     } else {
       box(c.x + c.w * 0.35, c.y + 10, w3, c.h * 0.38, 'CABEÇOTE (ALETAS)', th ? th.head : 0);
       box(c.x + c.w * 0.35, c.y + c.h * 0.5, w3, c.h * 0.38, 'CILINDRO (ALETAS)', th ? th.lin : 0);
-      for (let k = 0; k < 5; k++) arrow(c.x + 4, c.y + 20 + k * c.h / 5, c.x + c.w * 0.33, c.y + 20 + k * c.h / 5, AIR, 6);
+      const vA = Math.abs(st.kmh || 0) / 3.6 + (g.E.fan ? 14 * Math.min(1, (st.rpm || 0) / g.limit) : 0) + 0.8;
+      for (let k = 0; k < 5; k++) { const yy = c.y + 20 + k * c.h / 5; arrow(c.x + 4, yy, c.x + c.w * 0.33, yy, AIR, 6); flowLine([[c.x + 4, yy], [c.x + c.w * 0.35 + w3 + 30, yy]], 'rgba(127,184,255,0.7)', vA * 8, 2, [5, 8]); }   // vento passando pelas aletas
       lab(`vento ${fmt(Math.abs(st.kmh || 0), 0)} km/h → calor tirado ${th ? fmt((th.Q.fin || 0) / 1000, 1) : '–'} kW`, c.x + c.w * 0.75, c.y + c.h / 2, 'center', 10, INK);
       if (kind === 'oilair') lab(`radiador de óleo ${th ? fmt((th.Q.ocool || 0) / 1000, 1) : '–'} kW`, c.x + c.w * 0.75, c.y + c.h / 2 + 22, 'center', 10, THIN);
     }
@@ -568,21 +721,41 @@ const Blueprint = (() => {
   }
 
   // ---------- lubrificação ----------
+  // bronzina de biela em corte: o moente gira com a manivela, a carga empurra o eixo para um lado e a
+  // película de óleo (folga exagerada ~50×) fica mais fina ali; λ simulado define o quanto o eixo encosta
+  function bearingDrawing(S, g, p) {
+    const st = S.st || {}, th = st.heat, TH = EngineLib.TH, cx = p.x + p.w / 2, cy = p.y + p.h * 0.44, Rb = Math.min(p.w * 0.36, p.h * 0.3), c = Rb * 0.18, Rj = Rb - c;
+    const lam = th ? th.lam.biela : 6, film = th ? clamp(th.film, 0, 1) : 1, eps = clamp(1 - lam / 7, 0.05, 0.98), ang = (S.thv || 0) * DEG, jx = cx + eps * c * Math.cos(ang + Math.PI / 2), jy = cy + eps * c * Math.sin(ang + Math.PI / 2);
+    hatch(() => { x.arc(cx, cy, Rb + 9, 0, 7); x.moveTo(cx + Rb, cy); x.arc(cx, cy, Rb, 0, 7); }, 4);
+    pen(INK, 1.3); x.beginPath(); x.arc(cx, cy, Rb + 9, 0, 7); x.stroke(); x.beginPath(); x.arc(cx, cy, Rb, 0, 7); x.stroke();
+    x.fillStyle = `rgba(217,146,28,${0.12 + 0.6 * film})`; x.beginPath(); x.arc(cx, cy, Rb, 0, 7); x.moveTo(jx + Rj, jy); x.arc(jx, jy, Rj, 0, 7); x.fill('evenodd');   // película de óleo
+    x.fillStyle = 'rgba(200,215,230,0.18)'; x.beginPath(); x.arc(jx, jy, Rj, 0, 7); x.fill(); pen(INK, 1.4); x.stroke();
+    for (let k = 0; k < 3; k++) { const f = ang + k * 2 * Math.PI / 3; pen(THIN, 1.5); ln(jx, jy, jx + Rj * 0.8 * Math.cos(f), jy + Rj * 0.8 * Math.sin(f)); }   // moente girando
+    const mx = cx + Rb * Math.cos(ang + Math.PI / 2), my = cy + Rb * Math.sin(ang + Math.PI / 2), col = lam < 1 ? BAD : lam < 3 ? '#ffb020' : OK;
+    dot(mx, my, lam < 1 ? 6 : 4, col);
+    flowLine([[cx, cy - Rb - 24], [cx, cy - Rb]], '#ffcf6b', th ? 14 * th.pOil : 0, 2.5, [4, 4]);   // óleo chegando pelo furo
+    lab(`λ ${fmt(lam, 1)} · ${TH.regime ? TH.regime(lam) : ''}`, cx, cy + Rb + 22, 'center', 10, col);
+    lab(`película ${fmt(film * 100, 0)}% · folga exagerada`, cx, cy + Rb + 36, 'center', 8, THIN);
+    reserve(p.x, p.y, p.w, p.h);
+  }
   function oilSheet(S, g, r) {
     const st = S.st || {}, th = st.heat, inp = S.inp || {}, TH = EngineLib.TH, oil = TH.OILS[inp.oil || '5w30'];
     const p1 = panel(r.x, r.y, r.w * 0.5, r.h * 0.5, g.two ? 'LUBRIFICAÇÃO 2 TEMPOS (MISTURA)' : 'CIRCUITO DE ÓLEO');
     if (g.two) wrap(['Sem bomba nem cárter de óleo: o óleo vem misturado na gasolina e lubrifica bronzinas, pistão e anéis como névoa ao passar pelo cárter.', `Mistura atual: ${S.fuel && S.fuel.oil ? fmt(S.fuel.oil * 100, 0) + '%' : 'SEM ÓLEO — as peças ficam sem película e travam!'}`], p1, 10);
     else {
       const items = [['CÁRTER', `${fmt((inp.oilLvl != null ? inp.oilLvl : 1) * 100, 0)}% · ${th ? fmt(th.oil, 0) : '–'} °C`], ['PESCADOR + BOMBA', `${th ? fmt(th.pOil, 1) : '–'} bar`], ['ALÍVIO / FILTRO', '~5 bar máx.'], ['GALERIA', '']];
-      const bh = 26; items.forEach(([nm, v], i) => { const y = p1.y + 4 + i * (bh + 12); pen(INK, 1.2); x.strokeRect(p1.x, y, p1.w * 0.42, bh); txt(nm, p1.x + 6, y + bh / 2, 'left', 9, INK); txt(v, p1.x + p1.w * 0.42 - 6, y + bh / 2, 'right', 9, THIN); if (i) arrow(p1.x + p1.w * 0.21, y - 12, p1.x + p1.w * 0.21, y - 1, '#d9a441', 5); });
+      const pO = th ? th.pOil : 0, sO = 14 * pO;                                    // velocidade do traço ∝ pressão
+      const bh = 26; items.forEach(([nm, v], i) => { const y = p1.y + 4 + i * (bh + 12); pen(INK, 1.2); x.strokeRect(p1.x, y, p1.w * 0.42, bh); txt(nm, p1.x + 6, y + bh / 2, 'left', 9, INK); txt(v, p1.x + p1.w * 0.42 - 6, y + bh / 2, 'right', 9, THIN); if (i) { arrow(p1.x + p1.w * 0.21, y - 12, p1.x + p1.w * 0.21, y - 1, '#d9a441', 5); flowLine([[p1.x + p1.w * 0.21, y - 12], [p1.x + p1.w * 0.21, y]], '#ffcf6b', sO, 3, [4, 4]); } });
+      { const ly = p1.y + 4 + bh - 4, lv = clamp(inp.oilLvl != null ? inp.oilLvl : 1, 0, 1.1); x.fillStyle = 'rgba(217,146,28,0.45)'; x.fillRect(p1.x + 2, ly - (bh - 6) * lv, p1.w * 0.42 - 4, (bh - 6) * lv); }   // nível no cárter
       reserve(p1.x, p1.y, p1.w * 0.42, items.length * (bh + 12));
       const gy = p1.y + 4 + 3 * (bh + 12) + bh / 2, outs = [['MANCAIS', 'mancal'], ['BIELAS', 'biela'], ['COMANDO', 'comando'], ['JATOS → PISTÕES', 'aneis']]; if (g.fi && g.fi.type === 'turbo') outs.push(['TURBO', 'turbo']);
       outs.forEach(([nm, k2], i) => { const y = p1.y + 4 + i * (p1.h - 8) / outs.length + 10, l = th ? th.lam[k2] : 9, col = l < 1 ? BAD : l < 3 ? '#ffb020' : OK;
-        arrow(p1.x + p1.w * 0.42 + 2, gy, p1.x + p1.w * 0.58, y, '#d9a441', 5); pen(col, 1.4); x.strokeRect(p1.x + p1.w * 0.6, y - 11, p1.w * 0.4, 22); txt(nm, p1.x + p1.w * 0.6 + 6, y, 'left', 9, INK); txt(th ? `λ ${fmt(l, 1)}` : '', p1.x + p1.w - 6, y, 'right', 9, col); });
+        arrow(p1.x + p1.w * 0.42 + 2, gy, p1.x + p1.w * 0.58, y, '#d9a441', 5); flowLine([[p1.x + p1.w * 0.42 + 2, gy], [p1.x + p1.w * 0.58, y]], '#ffcf6b', sO, 2.5, [4, 5]); pen(col, 1.4); x.strokeRect(p1.x + p1.w * 0.6, y - 11, p1.w * 0.4, 22); txt(nm, p1.x + p1.w * 0.6 + 6, y, 'left', 9, INK); txt(th ? `λ ${fmt(l, 1)}` : '', p1.x + p1.w - 6, y, 'right', 9, col); });
       reserve(p1.x + p1.w * 0.58, p1.y, p1.w * 0.42, p1.h);
     }
     // Stribeck: atrito × número de Hersey (μ·N/P), com cada peça no seu regime
-    const p2 = panel(r.x + r.w * 0.53, r.y, r.w * 0.47, r.h * 0.5, 'CURVA DE STRIBECK');
+    if (!g.two) bearingDrawing(S, g, panel(r.x + r.w * 0.53, r.y, r.w * 0.2, r.h * 0.5, 'BRONZINA EM CORTE'));
+    const p2 = g.two ? panel(r.x + r.w * 0.53, r.y, r.w * 0.47, r.h * 0.5, 'CURVA DE STRIBECK') : panel(r.x + r.w * 0.76, r.y, r.w * 0.24, r.h * 0.5, 'CURVA DE STRIBECK');
     const xs = [], ys = []; for (let i = 0; i <= 60; i++) { const lam = i / 60 * 6; xs.push(lam); ys.push(0.004 + 0.12 * TH.contact(lam) + 0.0015 * lam); }
     const q = plot(p2, xs, [{ ys, col: INK, w: 1.8 }], { x0: 0, x1: 6, y0: 0, y1: 0.14, xl: 'λ = película ÷ rugosidade', yl: 'atrito', yd: 2, xd: 0 });
     x.fillStyle = 'rgba(255,90,90,0.08)'; x.fillRect(q.X(0), q.b - q.h, q.X(1) - q.X(0), q.h); x.fillStyle = 'rgba(255,176,32,0.07)'; x.fillRect(q.X(1), q.b - q.h, q.X(3) - q.X(1), q.h); x.fillStyle = 'rgba(123,224,176,0.06)'; x.fillRect(q.X(3), q.b - q.h, q.X(6) - q.X(3), q.h);
@@ -607,6 +780,8 @@ const Blueprint = (() => {
     const dpr = window.devicePixelRatio || 1, cw = cv.clientWidth, chh = cv.clientHeight;
     if (cv.width !== Math.round(cw * dpr) || cv.height !== Math.round(chh * dpr)) { cv.width = Math.round(cw * dpr); cv.height = Math.round(chh * dpr); }
     x = cv.getContext('2d'); x.setTransform(dpr, 0, 0, dpr, 0, 0); W = cw; H = chh; x.lineJoin = 'round'; placed = [];
+    const now = performance.now(), dtr = A.last ? Math.min(0.1, (now - A.last) / 1000) : 0; A.last = now;
+    A.dt = dtr * (S.st && S.st.ts != null ? S.st.ts : 1); A.t += A.dt;
     frame();
     const L0 = 28, top = 70, sh = 96, bottomY = H - 28 - sh;                  // topo livre para a barra de botões
     reserve(0, 0, W, 50);
